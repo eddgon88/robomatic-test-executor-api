@@ -271,6 +271,15 @@ def responseMapper(response, request):
     response['body'] = body
     return response
 
+def defaultResponseMapper(response, request):
+    #print("response: " + str(response['status_code']))
+    #print("response: " + str(response['headers']))
+    print("response: " + str(response))
+    #body = response['body']
+    #print('typo de body es: ' + str(type(body)))
+    #response['body'] = body
+    return response
+
 def sendMail(mails, subject, body, files, template_id):
     mail_array = mails.split(',')
     print("------------------------------" + str(type(body)) + "-----------------------------")
@@ -290,3 +299,11 @@ def sendMail(mails, subject, body, files, template_id):
         "files": file_array
     }
     sendqueue("tasks.send_mail", message)
+
+def getGsheet(request):
+    print(type(request))
+    logging.info('calling some gsheet ' + request['file_id'])
+    json_request = json.dumps(request)
+    r = requests.post(
+        'http://localhost:5008/gdrive-api/vi/consume', data=json_request)
+    return defaultResponseMapper(r.json(), request)
