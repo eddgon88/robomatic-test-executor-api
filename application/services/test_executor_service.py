@@ -16,45 +16,65 @@ from bs4 import BeautifulSoup
 from xml.dom import minidom
 from pydantic import EmailStr
 from threading import Event
+import docker
+from selenium import webdriver
+from datetime import datetime, timedelta
+from selenium.webdriver.common.by import By
+from ..services.docker_service import DockerService
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
 test_execution_data = {}
 case_execution_data = {}
+driver: webdriver
 # pasar por conf
 engine = create_engine(
     'postgresql://robomatic:robomatic@localhost:5432/test_executor')
 event = Event()
+dockerService = DockerService()
 
 
 class TestExecutorService:
     @staticmethod
     def executeTest(excecuteObject):
+        global driver
         #current_app.logger.info(
         #    'Executing test ' + excecuteObject['name'])
         logging.info('Executing test ' + excecuteObject['name'])
         testCasesFileUri = excecuteObject['test_cases_file']
         script = excecuteObject['script']
-        # Evaluar script
+        before_script = excecuteObject['before_script']
+        after_script = excecuteObject['after_script']
+        # Evaluar scripts
         data = pandas.read_csv(testCasesFileUri)
         test_execution_data['test_execution_id'] = excecuteObject['test_execution_id']
         test_execution_data['test_cases_size'] = len(data.index)
         test_execution_data['status'] = 'success'
         os.mkdir('/home/edgar/robomatic/github/evidence/' +
                  test_execution_data['test_execution_id'] + '/')
+        
+        if excecuteObject['web']:
+            ports = dockerService.createDocker()
+            logging.info('Selenium hub docker runnig -  ' + str(ports))
+            options = webdriver.ChromeOptions()
+            time.sleep(10)
+            driver = webdriver.Remote(
+                command_executor='http://'+os.getenv('HOST')+':'+str(ports[0]),
+                #command_executor='http://localhost:4444',
+                options=options
+            )
+        
+        executeBeforeOrAfter(before_script)
+
         with ThreadPoolExecutor(max_workers=excecuteObject['threads']) as executor:
             futures = {executor.submit(
                 executeCase, script, row, executor): row for row in data.iterrows()}
-            #for future in futures:
-            #    if future.cancelled():
-            #        continue
-            #    with engine.connect() as connection:
-            #        query = "SELECT * FROM test_executor.evidence_file as e WHERE e.file_name = '" + test_execution_data['test_execution_id'] + "'"
-            #        result = connection.execute(text(query)).first()
-            #        print(result)
-            #        if result:
-            #            executor.shutdown(wait=False, cancel_futures=True)
         executor.shutdown(wait=True)
+
+        executeBeforeOrAfter(after_script)
+
+        if excecuteObject['web']:
+            dockerService.destroy_docker('selenium_vnc_' + str(ports[0]) + '_' + str(ports[1]))
 
         # crear los archivos de evidencias globales
         generateFiles(1)
@@ -68,6 +88,31 @@ class TestExecutorService:
             query = "INSERT INTO test_executor.stop_execution (execution_id) VALUES('"+testExecution['test_execution_id']+"')"
             connection.execute(text(query))
 
+def executeBeforeOrAfter(script: str):
+    try:
+        case_execution_data['case_execution_id'] = utils.generateRandomId("ce")
+        case_execution_data['test_execution_id'] = test_execution_data['test_execution_id']
+
+        os.mkdir('/home/edgar/robomatic/github/evidence/' + test_execution_data['test_execution_id'] +
+                 '/' + case_execution_data['case_execution_id'] + '/')
+        case_execution_data['case_results_dir'] = '/home/edgar/robomatic/github/evidence/' + \
+            test_execution_data['test_execution_id'] + '/' + \
+            case_execution_data['case_execution_id'] + '/'
+
+        case_execution_data['status'] = "Succes"
+
+        exec(script)
+    except Exception as e:
+        case_execution_data['status'] = "Failed"
+        test_execution_data['status'] = "failed"
+        writeGlobalEvidence(
+            test_execution_data['test_execution_id'] + "_failed_cases",  str(e.with_traceback))
+    # crear archivos de evidencias unitarios
+    generateFiles(2)
+    # enviar datos del caso de prueba
+    sendqueue("tasks.insert_case_execution", case_execution_data)
+    return True
+
 def executeCase(script: str, data, executor):
     try:
         with engine.connect() as connection:
@@ -78,6 +123,7 @@ def executeCase(script: str, data, executor):
                 test_execution_data['status'] = "stopped"
                 executor.shutdown(wait=False, cancel_futures=True)
         print('execute case 1')
+
         print(data)
         (l, caseData) = data
         print('execute case 2')
@@ -113,8 +159,7 @@ def executeCase(script: str, data, executor):
     # enviar datos del caso de prueba
     sendqueue("tasks.insert_case_execution", case_execution_data)
     return True
-
-
+    
 def sendqueue(queueName, message):
     params = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672')
     params.socket_timeout = 5
@@ -221,7 +266,7 @@ def generateFiles(fileType):
         for row in result:
             print(type(row))
             query = "SELECT * FROM test_executor.case_evidence as e WHERE e.evidence_id = '" + \
-                row.evidence_id + "'"
+                row.evidence_id + "' ORDER BY creation_date ASC"
             rs = connection.execute(text(query))
             df = pandas.DataFrame(rs.fetchall())
             if not df.empty:
@@ -307,3 +352,59 @@ def getGsheet(request):
     r = requests.post(
         'http://localhost:5008/gdrive-api/vi/consume', data=json_request)
     return defaultResponseMapper(r.json(), request)
+
+def get(url):
+    driver.get(url)
+    driver.fullscreen_window()
+
+def getElement(element):
+    by_array = [By.XPATH, By.ID]
+    for by in by_array:
+        try:
+            return driver.find_element(by, element)
+        except Exception as e:
+            exeption = e
+            #log
+    raise Exception("Element no reachable")
+
+def waitElement(element, timeout):
+    #log
+    timeout_date = datetime.now() + timedelta(seconds=timeout)
+    date = datetime.now()
+
+    while timeout_date > date:
+        try:
+            return getElement(element)
+        except Exception as e:
+            exeption = e
+            date = datetime.now()
+            #log
+    raise Exception("TIMEOUT - Element no reachable")
+
+def focus(element):
+    #log
+    web_element = getElement(element)
+    location = web_element.location
+    window_position = driver.get_window_position()
+    driver.execute_script("window.scrollTo(0, "+ str(location['y']) +")") 
+
+def click(element):
+    #log
+    web_element = getElement(element)
+    web_element.click()
+
+def tick(element, color):
+    #log
+    web_element = getElement(element)
+    def apply_style(s):
+        driver.execute_script("arguments[0].setAttribute('style', arguments[1]);",
+                              web_element, s)
+    original_style = web_element.get_attribute('style')
+    apply_style("border: 2px solid "+ color +";")
+    time.sleep(.3)
+    apply_style(original_style)
+
+def input(element, text):
+    #log
+    web_element = getElement(element)
+    web_element.send_keys(text)

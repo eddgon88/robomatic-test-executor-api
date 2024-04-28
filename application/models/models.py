@@ -3,10 +3,13 @@ from pydantic import BaseModel
 
 class TestExecutionRequest(BaseModel):
     script: str
+    before_script: str
+    after_script: str
     test_cases_file: str
     threads: int
     name: str
     test_execution_id: str
+    web: bool
 
 class StopExecutionRequest(BaseModel):
     id: int
