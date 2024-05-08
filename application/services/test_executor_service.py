@@ -1,4 +1,3 @@
-import sys
 import pandas
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +15,6 @@ from bs4 import BeautifulSoup
 from xml.dom import minidom
 from pydantic import EmailStr
 from threading import Event
-import docker
 from selenium import webdriver
 from datetime import datetime, timedelta
 from selenium.webdriver.common.by import By
@@ -63,6 +61,10 @@ class TestExecutorService:
                 #command_executor='http://localhost:4444',
                 options=options
             )
+            with engine.connect() as connection:
+                webquery = "INSERT INTO test_executor.test_port (execution_id,selenium_port,vnc_port) VALUES ('" + \
+                    test_execution_data['test_execution_id']+"','"+str(ports[0])+"','"+str(ports[1])+"');"
+                connection.execute(text(webquery))
         
         executeBeforeOrAfter(before_script)
 

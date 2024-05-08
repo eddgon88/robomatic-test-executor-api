@@ -1,9 +1,8 @@
 from fastapi import APIRouter
-import asyncio
-from ..jms.jms_client import PikaClient
 from ..services.test_executor_service import TestExecutorService
 from ..services.docker_service import DockerService
-from ..models.models import TestExecutionRequest, StopExecutionRequest
+from ..services.execution_service import ExecutionService
+from ..models.models import TestExecutionRequest, StopExecutionRequest, ExecutionPorts
 import threading
 
 router = APIRouter(prefix="/test-executor/v1")
@@ -28,17 +27,6 @@ async def stop(params: StopExecutionRequest):
     #TestExecutorService.stop_test(params.dict())
     return True
 
-@router.get("/docker-images", status_code=200)
-async def images():
-    dockerService.docker_image()
-    return True
-
-@router.get("/create-docker", status_code=200)
-async def create_docker():
-    dockerService.createDocker()
-    return True
-
-@router.get("/docker-ps", status_code=200)
-async def images():
-    dockerService.docker_image()
-    return True
+@router.get("/execution/ports/{execution_id}", status_code=200)
+async def get_vnc_port(execution_id: str):
+    return ExecutionService.get_execution_vnc_port(execution_id)

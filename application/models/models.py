@@ -17,3 +17,9 @@ class StopExecutionRequest(BaseModel):
     test_id: int
     status: int
     test_execution_id: str
+
+class ExecutionPorts(BaseModel):
+    id: int
+    execution_id: str
+    selenium_port: str
+    vnc_port: str
