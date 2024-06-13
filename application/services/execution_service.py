@@ -1,8 +1,11 @@
 from sqlalchemy import text, create_engine
 from ..models.models import ExecutionPorts
+import os
+from dotenv import load_dotenv
 
-engine = create_engine(
-    'postgresql://robomatic:robomatic@localhost:5432/test_executor')
+load_dotenv()
+
+engine = create_engine(os.getenv('DB_SERVER_URL'))
 
 
 class ExecutionService:

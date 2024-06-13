@@ -2,11 +2,15 @@ from ..services.test_executor_service import TestExecutorService
 import pika
 from aio_pika import connect_robust
 import ast
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class PikaClient:
 
     def __init__(self, process_callable):
-        params = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672')
+        params = pika.URLParameters(os.getenv('RABBIT_SERVER_URL'))
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel() # start a channel
         #self.channel.queue_declare(queue='tasks.execute_test') # Declare a queue
@@ -15,7 +19,7 @@ class PikaClient:
         print('Pika connection initialized')
 
     async def consume_execute_test(self, loop):
-        connection = await connect_robust(host="127.0.0.1",
+        connection = await connect_robust(host="localhost",
                                         port=5672,
                                         login="admin",
                                         password="admin",
@@ -37,7 +41,7 @@ class PikaClient:
             TestExecutorService.executeTest(content)
     
     async def consume_stop_test_execution(self, loop):
-        connection = await connect_robust(host="127.0.0.1",
+        connection = await connect_robust(host="localhost",
                                         port=5672,
                                         login="admin",
                                         password="admin",

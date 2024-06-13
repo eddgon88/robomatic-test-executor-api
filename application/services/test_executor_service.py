@@ -6,28 +6,26 @@ from sqlalchemy import text, create_engine
 from datetime import datetime
 import time
 import os
-from fastapi import Depends
 import logging
 import pika
 import requests
 import json
 from bs4 import BeautifulSoup
 from xml.dom import minidom
-from pydantic import EmailStr
 from threading import Event
 from selenium import webdriver
 from datetime import datetime, timedelta
 from selenium.webdriver.common.by import By
 from ..services.docker_service import DockerService
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
 test_execution_data = {}
 case_execution_data = {}
 driver: webdriver
-# pasar por conf
-engine = create_engine(
-    'postgresql://robomatic:robomatic@localhost:5432/test_executor')
+load_dotenv()
+engine = create_engine(os.getenv('DB_SERVER_URL'))
 event = Event()
 dockerService = DockerService()
 
@@ -39,7 +37,7 @@ class TestExecutorService:
         #current_app.logger.info(
         #    'Executing test ' + excecuteObject['name'])
         logging.info('Executing test ' + excecuteObject['name'])
-        testCasesFileUri = excecuteObject['test_cases_file']
+        testCasesFileUri = os.getenv('TEST_CASES_DIR') + getCase(excecuteObject['test_cases_file'])
         script = excecuteObject['script']
         before_script = excecuteObject['before_script']
         after_script = excecuteObject['after_script']
@@ -48,7 +46,7 @@ class TestExecutorService:
         test_execution_data['test_execution_id'] = excecuteObject['test_execution_id']
         test_execution_data['test_cases_size'] = len(data.index)
         test_execution_data['status'] = 'success'
-        os.mkdir('/home/edgar/robomatic/github/evidence/' +
+        os.mkdir(os.getenv('EVIDENCE_FILE_DIR') + '/' +
                  test_execution_data['test_execution_id'] + '/')
         
         if excecuteObject['web']:
@@ -57,14 +55,36 @@ class TestExecutorService:
             options = webdriver.ChromeOptions()
             time.sleep(10)
             driver = webdriver.Remote(
-                command_executor='http://'+os.getenv('HOST')+':'+str(ports[0]),
+                command_executor='http://'+str(ports[1].name)+':'+str(ports[0][0]),
                 #command_executor='http://localhost:4444',
                 options=options
             )
+            logging.info('-------------aqui---------1')
             with engine.connect() as connection:
-                webquery = "INSERT INTO test_executor.test_port (execution_id,selenium_port,vnc_port) VALUES ('" + \
-                    test_execution_data['test_execution_id']+"','"+str(ports[0])+"','"+str(ports[1])+"');"
-                connection.execute(text(webquery))
+                try:
+                    trans = connection.begin()
+                    webquery = text("""
+                        INSERT INTO test_executor.test_port (execution_id, selenium_port, vnc_port) 
+                        VALUES (:execution_id, :selenium_port, :vnc_port)
+                    """)
+                    
+                    # Parameters to prevent SQL injection
+                    params = {
+                        'execution_id': test_execution_data['test_execution_id'],
+                        'selenium_port': str(ports[0][0]),
+                        'vnc_port': str(ports[0][1])
+                    }
+                    
+                    result = connection.execute(webquery, params)
+                    
+                    # For INSERT operations, print the row count and primary key value (if any)
+                    logging.info(f"Rows affected: {result.rowcount}")
+                    logging.info(f"Last inserted ID: {result.lastrowid}")
+                    trans.commit()  # Commit the transaction
+                    
+                except Exception as e:
+                    logging.error(f"An error occurred: {e}")
+                    trans.rollback() 
         
         executeBeforeOrAfter(before_script)
 
@@ -76,7 +96,7 @@ class TestExecutorService:
         executeBeforeOrAfter(after_script)
 
         if excecuteObject['web']:
-            dockerService.destroy_docker('selenium_vnc_' + str(ports[0]) + '_' + str(ports[1]))
+            dockerService.destroy_docker(str(ports[1].name))
 
         # crear los archivos de evidencias globales
         generateFiles(1)
@@ -87,17 +107,27 @@ class TestExecutorService:
     def stop_test(testExecution):
         print("stopping test")
         with engine.connect() as connection:
-            query = "INSERT INTO test_executor.stop_execution (execution_id) VALUES('"+testExecution['test_execution_id']+"')"
-            connection.execute(text(query))
+            try:
+                trans = connection.begin()
+                query = "INSERT INTO test_executor.stop_execution (execution_id) VALUES('"+testExecution['test_execution_id']+"')"
+                connection.execute(text(query))
+                trans.commit()  # Commit the transaction                 
+            except Exception as e:
+                logging.error(f"An error occurred: {e}")
+                trans.rollback() 
+
+def getCase(dir: str):
+    list_dir = dir.split('/')
+    return list_dir[len(list_dir) - 1]
 
 def executeBeforeOrAfter(script: str):
     try:
         case_execution_data['case_execution_id'] = utils.generateRandomId("ce")
         case_execution_data['test_execution_id'] = test_execution_data['test_execution_id']
 
-        os.mkdir('/home/edgar/robomatic/github/evidence/' + test_execution_data['test_execution_id'] +
+        os.mkdir(os.getenv('EVIDENCE_FILE_DIR')+ '/' + test_execution_data['test_execution_id'] +
                  '/' + case_execution_data['case_execution_id'] + '/')
-        case_execution_data['case_results_dir'] = '/home/edgar/robomatic/github/evidence/' + \
+        case_execution_data['case_results_dir'] = os.getenv('EVIDENCE_FILE_DIR')+ '/' + \
             test_execution_data['test_execution_id'] + '/' + \
             case_execution_data['case_execution_id'] + '/'
 
@@ -136,9 +166,9 @@ def executeCase(script: str, data, executor):
         logging.info('Executing Case')
         print('execute case 4')
 
-        os.mkdir('/home/edgar/robomatic/github/evidence/' + test_execution_data['test_execution_id'] +
+        os.mkdir(os.getenv('EVIDENCE_FILE_DIR')+ '/' + test_execution_data['test_execution_id'] +
                  '/' + case_execution_data['case_execution_id'] + '/')
-        case_execution_data['case_results_dir'] = '/home/edgar/robomatic/github/evidence/' + \
+        case_execution_data['case_results_dir'] = os.getenv('EVIDENCE_FILE_DIR')+ '/' + \
             test_execution_data['test_execution_id'] + '/' + \
             case_execution_data['case_execution_id'] + '/'
         print('execute case 5')
@@ -163,7 +193,7 @@ def executeCase(script: str, data, executor):
     return True
     
 def sendqueue(queueName, message):
-    params = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672')
+    params = pika.URLParameters(os.getenv('RABBIT_SERVER_URL'))
     params.socket_timeout = 5
 
     connection = pika.BlockingConnection(params)  # Connect to CloudAMQP
@@ -208,33 +238,45 @@ def writeEvidence(fileName, content, fileType):
     if result:
         evidence_file_id = result.evidence_id
         with engine.connect() as connection:
-            date = datetime.today()
-            query = "INSERT INTO test_executor.case_evidence (evidence_id,evidence_text, creation_date) VALUES ('" + \
-                evidence_file_id+"','"+content+"', '"+str(date)+"');"
-            connection.execute(text(query))
+            try:
+                trans = connection.begin()
+                date = datetime.today()
+                query = "INSERT INTO test_executor.case_evidence (evidence_id,evidence_text, creation_date) VALUES ('" + \
+                    evidence_file_id+"','"+content+"', '"+str(date)+"');"
+                connection.execute(text(query))
+                trans.commit() 
+            except Exception as e:
+                    logging.error(f"An error occurred: {e}")
+                    trans.rollback()      
     else:
         evidence_file_id = utils.generateRandomId("ef")
         file_name = fileName + '.txt'
         if fileType == 1:
-            evidence_uri = '/home/edgar/robomatic/github/evidence/' + \
+            evidence_uri = os.getenv('EVIDENCE_FILE_DIR')+ '/' + \
                 test_execution_data['test_execution_id'] + \
                 '/' + fileName + '.txt'
         else:
-            evidence_uri = '/home/edgar/robomatic/github/evidence/' + test_execution_data['test_execution_id'] + \
+            evidence_uri = os.getenv('EVIDENCE_FILE_DIR')+ '/' + test_execution_data['test_execution_id'] + \
                 '/' + \
                 case_execution_data['case_execution_id'] + \
                 '/' + fileName + '.txt'
         test_execution_id = test_execution_data['test_execution_id']
         with engine.connect() as connection:
-            query = "INSERT INTO test_executor.evidence_file (evidence_id,file_name,evidence_uri, type_id, test_execution_id, case_execution_id) VALUES ('" + \
-                evidence_file_id+"','"+file_name+"','"+evidence_uri+"'," + \
-                    str(fileType)+",'"+test_execution_id+"','" + \
-                case_execution_data['case_execution_id']+"');"
-            connection.execute(text(query))
-            date = datetime.today()
-            query = "INSERT INTO test_executor.case_evidence (evidence_id,evidence_text, creation_date) VALUES ('" + \
-                evidence_file_id+"','"+content+"', '"+str(date)+"');"
-            connection.execute(text(query))
+            try:
+                trans = connection.begin()
+                query = "INSERT INTO test_executor.evidence_file (evidence_id,file_name,evidence_uri, type_id, test_execution_id, case_execution_id) VALUES ('" + \
+                    evidence_file_id+"','"+file_name+"','"+evidence_uri+"'," + \
+                        str(fileType)+",'"+test_execution_id+"','" + \
+                    case_execution_data['case_execution_id']+"');"
+                connection.execute(text(query))
+                date = datetime.today()
+                query = "INSERT INTO test_executor.case_evidence (evidence_id,evidence_text, creation_date) VALUES ('" + \
+                    evidence_file_id+"','"+content+"', '"+str(date)+"');"
+                connection.execute(text(query))
+                trans.commit()
+            except Exception as e:
+                    logging.error(f"An error occurred: {e}")
+                    trans.rollback()    
 
 
 def sleep(s):

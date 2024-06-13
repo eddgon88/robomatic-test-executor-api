@@ -1,10 +1,10 @@
 import docker
 import time
+import os
 
 client = docker.from_env()
-dockerfile_path = '/home/edgar/robomatic/github/robomatic-test-executor-api/resources'  # Ruta absoluta al Dockerfile
-build_context = '/home/edgar/robomatic/github/robomatic-test-executor-api/resources/context'      # Ruta al directorio que contiene archivos relacionados (si es necesario)
-image_name = 'selenium-vnc:1.0'
+dockerfile_path = os.getenv('RESOURCES_DIR')  # Ruta absoluta al Dockerfile
+image_name = os.getenv('SELENIUM_IMAGE')
 ports = [4444, 5900, 4449]
 
 
@@ -12,8 +12,8 @@ class DockerService:
     @staticmethod
     def createDockerImage():
         image = client.images.build(
-            path    = dockerfile_path,
-            tag     = image_name,
+            path    = os.getenv('RESOURCES_DIR'),
+            tag     = os.getenv('SELENIUM_IMAGE'),
             rm      = True,           # Eliminar contenedores intermedios después de la construcción
             pull    = True,         # Intentar obtener una versión más reciente de la imagen base
             forcerm = True     # Forzar la eliminación de contenedores intermedios si falla la construcción
@@ -24,15 +24,17 @@ class DockerService:
         ret_ports = check_ports()
 
         container_config = {
-            'image': image_name,  # Nombre de la imagen Docker
+            'image': os.getenv('SELENIUM_IMAGE'),  # Nombre de la imagen Docker
             'detach': True,  # Ejecución en segundo plano
             'ports': {'4444/tcp': str(ret_ports[0]), '5900/tcp': str(ret_ports[1])},  # Mapeo de puertos (puerto_contenedor/tcp: puerto_host)
             'name': 'selenium_vnc_' + str(ret_ports[0]) + '_' + str(ret_ports[1])  # Nombre para el contenedor
         }
 
-        client.containers.run(**container_config)
+        cont = client.containers.run(**container_config)
+        network = client.networks.get('robomatic')
+        network.connect(cont)
 
-        return ret_ports
+        return ret_ports, cont
 
     @staticmethod
     def docker_image():

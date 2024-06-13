@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+#get name of the current directory
+NAME=$(basename "$PWD")
+
+#run the docker
+docker run --name $NAME --network robomatic -p 5007:5007 -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker -v /home/edgar/robomatic/github/robomatic-test-executor-api/resources:/home/robomatic-test-executor-api/resources -v /home/edgar/robomatic/github/evidence:/home/evidence -v /home/edgar/robomatic/github/cases:/home/cases $NAME
