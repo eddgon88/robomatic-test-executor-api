@@ -11,7 +11,11 @@ app_configs = {"title": "test-executor-api",
                "SELENIUM_IMAGE": config.SELENIUM_IMAGE,
                "TEST_CASES_DIR": config.TEST_CASES_DIR,
                "DB_SERVER_URL": config.DB_SERVER_URL,
-               "RABBIT_SERVER_URL": config.RABBIT_SERVER_URL}
+               "RABBIT_SERVER_URL": config.RABBIT_SERVER_URL,
+               "REST_API_URL": config.REST_API_URL,
+               "DATABASE_API_URL": config.DATABASE_API_URL,
+               "MAIL_API_URL": config.MAIL_API_URL,
+               "JMS_API_URL": config.JMS_API_URL}
 
 def create_app():
     app = FastAPI(**app_configs)

@@ -18,6 +18,8 @@ from datetime import datetime, timedelta
 from selenium.webdriver.common.by import By
 from ..services.docker_service import DockerService
 from dotenv import load_dotenv
+from typing import List
+from pydantic import EmailStr
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
@@ -93,13 +95,14 @@ class TestExecutorService:
                 executeCase, script, row, executor): row for row in data.iterrows()}
         executor.shutdown(wait=True)
 
+        generateFiles(1)
+
         executeBeforeOrAfter(after_script)
 
         if excecuteObject['web']:
             dockerService.destroy_docker(str(ports[1].name))
 
         # crear los archivos de evidencias globales
-        generateFiles(1)
         # enviar datos de la ejecución al core
         sendqueue("tasks.update_test_execution", test_execution_data)
 
@@ -150,42 +153,43 @@ def executeCase(script: str, data, executor):
         with engine.connect() as connection:
             query = "SELECT * FROM test_executor.stop_execution as e WHERE e.execution_id = '" + test_execution_data['test_execution_id'] + "'"
             result = connection.execute(text(query)).first()
-            print('-------------aqui---------' + str(result))
+            #print('-------------aqui---------' + str(result))
             if result:
                 test_execution_data['status'] = "stopped"
                 executor.shutdown(wait=False, cancel_futures=True)
-        print('execute case 1')
+        #print('execute case 1')
 
-        print(data)
+        logging.info(data)
         (l, caseData) = data
-        print('execute case 2')
+        logging.info(caseData)
+        #print('execute case 2')
         case_execution_data['case_execution_id'] = utils.generateRandomId("ce")
         case_execution_data['test_execution_id'] = test_execution_data['test_execution_id']
-        print('execute case 3')
+        #print('execute case 3')
 
         logging.info('Executing Case')
-        print('execute case 4')
+        #print('execute case 4')
 
         os.mkdir(os.getenv('EVIDENCE_FILE_DIR')+ '/' + test_execution_data['test_execution_id'] +
                  '/' + case_execution_data['case_execution_id'] + '/')
         case_execution_data['case_results_dir'] = os.getenv('EVIDENCE_FILE_DIR')+ '/' + \
             test_execution_data['test_execution_id'] + '/' + \
             case_execution_data['case_execution_id'] + '/'
-        print('execute case 5')
+        #print('execute case 5')
 
         case_execution_data['status'] = "Succes"
-        print('execute case 6')
+        #print('execute case 6')
 
         exec(script)
     except Exception as e:
-        print("Failed exec")
-        print(e.with_traceback)
-        print(format(e))
+        logging.error("Failed exec")
+        #print(e.with_traceback)
+        logging.error(format(e))
         #current_app.logger.error('Case execution failed: ' + e.with_traceback)
         case_execution_data['status'] = "Failed"
         test_execution_data['status'] = "failed"
         writeGlobalEvidence(
-            test_execution_data['test_execution_id'] + "_failed_cases",  str(e.with_traceback))
+            test_execution_data['test_execution_id'] + "_failed_cases",  str(format(e)).replace('\'', ''))
     # crear archivos de evidencias unitarios
     generateFiles(2)
     # enviar datos del caso de prueba
@@ -203,7 +207,7 @@ def sendqueue(queueName, message):
 
     channel.basic_publish(
         exchange='', routing_key=queueName, body=str(message))
-    print("[x] Message sent to consumer")
+    #print("[x] Message sent to consumer")
     connection.close()
 
 
@@ -306,9 +310,9 @@ def generateFiles(fileType):
                     case_execution_data['case_execution_id'] + \
                 "' AND e.type_id = " + str(fileType) + ";"
         result = connection.execute(text(query))
-        print(type(result))
+        #print(type(result))
         for row in result:
-            print(type(row))
+            #print(type(row))
             query = "SELECT * FROM test_executor.case_evidence as e WHERE e.evidence_id = '" + \
                 row.evidence_id + "' ORDER BY creation_date ASC"
             rs = connection.execute(text(query))
@@ -323,11 +327,11 @@ def generateFiles(fileType):
 
 
 def consumeService(request):
-    print(type(request))
+    #print(type(request))
     logging.info('calling some service ' + request['url'])
     json_request = json.dumps(request)
     r = requests.post(
-        'http://localhost:5002/rest-api/v1/consume', data=json_request)
+        os.getenv('REST_API_URL'), data=json_request)
     return responseMapper(r.json(), request)
 
 
@@ -335,45 +339,47 @@ def executeQuery(dbconfig):
     logging.info('executing some query ' + dbconfig['query'])
     json_request = json.dumps(dbconfig)
     r = requests.post(
-        'http://localhost:5003/database-api/v1/execute', data=json_request)
+        os.getenv('DATABASE_API_URL'), data=json_request)
     return r.json()
 
 
 def sendJmsQueue(jmsconfig):
-    logging.info('sending some queue to' + jmsconfig['engine'])
+    logging.info('sending some queue to: ' + jmsconfig['engine'])
     json_request = json.dumps(jmsconfig)
     r = requests.post(
-        'http://localhost:5004/jms-api/v1/sendqueue', data=json_request)
+        os.getenv('JMS_API_URL'), data=json_request)
+    logging.info('sended queue: ' + str(r))
     return r.content
 
 
 def responseMapper(response, request):
-    print("response: " + str(response['status_code']))
-    print("response: " + str(response['headers']))
+    #print("response: " + str(response['status_code']))
+    #print("response: " + str(response['headers']))
     if 'html' in response['headers']['Content-Type'] and request['service_type'] == 'SCRAPING':
         body = BeautifulSoup(response['body'], 'html.parser')
     elif 'xml' in response['headers']['Content-Type']:
         body = minidom.parseString(response['body'])
     else:
         body = response['body']
-    print('typo de body es: ' + str(type(body)))
+    #print('typo de body es: ' + str(type(body)))
     response['body'] = body
     return response
 
 def defaultResponseMapper(response, request):
     #print("response: " + str(response['status_code']))
     #print("response: " + str(response['headers']))
-    print("response: " + str(response))
+    #print("response: " + str(response))
     #body = response['body']
     #print('typo de body es: ' + str(type(body)))
     #response['body'] = body
     return response
 
 def sendMail(mails, subject, body, files, template_id):
+    logging.info('sending mail')
     mail_array = mails.split(',')
-    print("------------------------------" + str(type(body)) + "-----------------------------")
     if str(type(body)) == "<class 'str'>":
         body_dict = None
+        template_id = None
         body_str = body
     else:
         body_dict = body
@@ -382,19 +388,23 @@ def sendMail(mails, subject, body, files, template_id):
     message = {
         "email": mail_array,
         "subject": subject,
+        "execution_id": test_execution_data['test_execution_id'],
         "body": body_str,
         "body_dict": body_dict,
         "template_id": template_id,
         "files": file_array
     }
-    sendqueue("tasks.send_mail", message)
+    req = json.dumps(message)
+    r = requests.post(
+        os.getenv('MAIL_API_URL'), data=req)
+    logging.info('Mail sended')
 
 def getGsheet(request):
     print(type(request))
     logging.info('calling some gsheet ' + request['file_id'])
     json_request = json.dumps(request)
     r = requests.post(
-        'http://localhost:5008/gdrive-api/vi/consume', data=json_request)
+        os.getenv("GDRIVE_API_URL"), data=json_request)
     return defaultResponseMapper(r.json(), request)
 
 def get(url):

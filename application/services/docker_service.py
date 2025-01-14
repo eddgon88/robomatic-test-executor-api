@@ -31,7 +31,7 @@ class DockerService:
         }
 
         cont = client.containers.run(**container_config)
-        network = client.networks.get('robomatic')
+        network = client.networks.get('robomatic-docker-compose_robomatic-net')
         network.connect(cont)
 
         return ret_ports, cont
