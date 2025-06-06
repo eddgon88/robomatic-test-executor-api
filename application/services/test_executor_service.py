@@ -16,10 +16,14 @@ from threading import Event
 from selenium import webdriver
 from datetime import datetime, timedelta
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from ..services.docker_service import DockerService
 from dotenv import load_dotenv
 from typing import List
 from pydantic import EmailStr
+import unicodedata
+import re
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
@@ -55,13 +59,27 @@ class TestExecutorService:
             ports = dockerService.createDocker()
             logging.info('Selenium hub docker runnig -  ' + str(ports))
             options = webdriver.ChromeOptions()
+            options.add_argument("--disable-notifications")
+            options.add_experimental_option("prefs", {
+                "profile.default_content_setting_values.notifications": 2  # 2 = bloquear
+            })
             time.sleep(10)
-            driver = webdriver.Remote(
-                command_executor='http://'+str(ports[1].name)+':'+str(ports[0][0]),
-                #command_executor='http://localhost:4444',
-                options=options
-            )
-            logging.info('-------------aqui---------1')
+            max_attempts = 100
+            for attempt in range(max_attempts):
+                try:
+                    driver = webdriver.Remote(
+                        command_executor='http://'+str(ports[1].name)+':'+str(ports[0][0]),
+                        #command_executor='http://localhost:4444',
+                        options=options
+                    )
+                    break
+                except Exception as e:
+                    logging.warning(f"Intento fallido: {str(e)}")
+                    if attempt == max_attempts - 1:
+                        dockerService.destroy_docker(str(ports[1].name))
+                        raise Exception(f"No se pudo conectar a Selenium tras {max_attempts} intentos: {str(e)}")
+                    time.sleep(5)
+            
             with engine.connect() as connection:
                 try:
                     trans = connection.begin()
@@ -409,7 +427,7 @@ def getGsheet(request):
 
 def get(url):
     driver.get(url)
-    driver.fullscreen_window()
+    #driver.fullscreen_window()
 
 def getElement(element):
     by_array = [By.XPATH, By.ID]
@@ -462,3 +480,18 @@ def input(element, text):
     #log
     web_element = getElement(element)
     web_element.send_keys(text)
+
+def getText(element):
+    #log
+    web_element = getElement(element)
+    return web_element.text
+
+def getAttribute(element, attribute):
+    #log
+    web_element = getElement(element)
+    return web_element.get_attribute(attribute)
+
+def clear(element):
+    #log
+    web_element = getElement(element)
+    web_element.clear()

@@ -2,7 +2,7 @@
 FROM selenium/standalone-chrome:latest
 #docker pull selenium/standalone-chrome:latest
 # Instalar VNC Server
-RUN sudo apt-get update && sudo apt-get install -y x11vnc xvfb fluxbox wmctrl && \
+RUN sudo apt-get update && sudo apt-get install -y x11vnc xvfb fluxbox wmctrl supervisor && \
     sudo apt-get clean && \
     sudo rm -rf /var/lib/apt/lists/*
 
