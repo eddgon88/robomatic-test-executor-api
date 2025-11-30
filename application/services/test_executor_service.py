@@ -13,6 +13,7 @@ import json
 from bs4 import BeautifulSoup
 from xml.dom import minidom
 from threading import Event
+import threading
 from selenium import webdriver
 from datetime import datetime, timedelta
 from selenium.webdriver.common.by import By
@@ -27,19 +28,19 @@ import re
 
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
+
+local_storage = threading.local()
 test_execution_data = {}
 case_execution_data = {}
-driver: webdriver
 load_dotenv()
 engine = create_engine(os.getenv('DB_SERVER_URL'))
 event = Event()
-dockerService = DockerService()
 
 
 class TestExecutorService:
     @staticmethod
     def executeTest(excecuteObject):
-        global driver
+        dockerService = DockerService()
         #current_app.logger.info(
         #    'Executing test ' + excecuteObject['name'])
         logging.info('Executing test ' + excecuteObject['name'])
@@ -64,10 +65,10 @@ class TestExecutorService:
                 "profile.default_content_setting_values.notifications": 2  # 2 = bloquear
             })
             time.sleep(10)
-            max_attempts = 100
+            max_attempts = 5
             for attempt in range(max_attempts):
                 try:
-                    driver = webdriver.Remote(
+                    local_storage.driver = webdriver.Remote(
                         command_executor='http://'+str(ports[1].name)+':'+str(ports[0][0]),
                         #command_executor='http://localhost:4444',
                         options=options
@@ -110,7 +111,7 @@ class TestExecutorService:
 
         with ThreadPoolExecutor(max_workers=excecuteObject['threads']) as executor:
             futures = {executor.submit(
-                executeCase, script, row, executor): row for row in data.iterrows()}
+                executeCase, script, row, executor, local_storage.driver): row for row in data.iterrows()}
         executor.shutdown(wait=True)
 
         generateFiles(1)
@@ -118,6 +119,14 @@ class TestExecutorService:
         executeBeforeOrAfter(after_script)
 
         if excecuteObject['web']:
+            if getattr(local_storage, 'driver', None):
+                try:
+                    local_storage.driver.quit()
+                    logging.info("Sesión de WebDriver cerrada.")
+                except Exception as e:
+                    logging.warning(f"Error al cerrar la sesión de WebDriver: {e}")
+                local_storage.driver = None # Limpia la referencia
+
             dockerService.destroy_docker(str(ports[1].name))
 
         # crear los archivos de evidencias globales
@@ -136,6 +145,14 @@ class TestExecutorService:
             except Exception as e:
                 logging.error(f"An error occurred: {e}")
                 trans.rollback() 
+
+def get_driver_from_thread():
+    """Función auxiliar para obtener el driver del hilo actual de forma segura."""
+    driver = getattr(local_storage, 'driver', None)
+    if not driver:
+        # Esto puede pasar si se llama una función web fuera de una ejecución de prueba con web=true
+        raise RuntimeError("WebDriver no está inicializado en este contexto/hilo.")
+    return driver
 
 def getCase(dir: str):
     list_dir = dir.split('/')
@@ -166,7 +183,8 @@ def executeBeforeOrAfter(script: str):
     sendqueue("tasks.insert_case_execution", case_execution_data)
     return True
 
-def executeCase(script: str, data, executor):
+def executeCase(script: str, data, executor, driver_instance):
+    local_storage.driver = driver_instance
     try:
         with engine.connect() as connection:
             query = "SELECT * FROM test_executor.stop_execution as e WHERE e.execution_id = '" + test_execution_data['test_execution_id'] + "'"
@@ -426,10 +444,12 @@ def getGsheet(request):
     return defaultResponseMapper(r.json(), request)
 
 def get(url):
+    driver = get_driver_from_thread()
     driver.get(url)
     #driver.fullscreen_window()
 
 def getElement(element):
+    driver = get_driver_from_thread()
     by_array = [By.XPATH, By.ID]
     for by in by_array:
         try:
@@ -441,6 +461,7 @@ def getElement(element):
 
 def waitElement(element, timeout):
     #log
+    driver = get_driver_from_thread()
     timeout_date = datetime.now() + timedelta(seconds=timeout)
     date = datetime.now()
 
@@ -455,6 +476,7 @@ def waitElement(element, timeout):
 
 def focus(element):
     #log
+    driver = get_driver_from_thread()
     web_element = getElement(element)
     location = web_element.location
     window_position = driver.get_window_position()
@@ -462,11 +484,13 @@ def focus(element):
 
 def click(element):
     #log
+    driver = get_driver_from_thread()
     web_element = getElement(element)
     web_element.click()
 
 def tick(element, color):
     #log
+    driver = get_driver_from_thread()
     web_element = getElement(element)
     def apply_style(s):
         driver.execute_script("arguments[0].setAttribute('style', arguments[1]);",

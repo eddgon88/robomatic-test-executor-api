@@ -109,27 +109,6 @@ class DockerService:
         container.kill()  # Mata el contenedor
         container.remove()  # Elimina el contenedor
     
-#def check_ports():
-#    global ports
-#    selenium_port = ports[0]
-#    vnc_port = ports[1]
-#    ret_ports = (selenium_port, vnc_port)
-#    limit = ports[2]
-#    dockers = client.containers.list()
-#    for docker in dockers:
-#        dports = docker.attrs['NetworkSettings']['Ports']
-#        for host_ports in dports.items():
-#            for host_port in host_ports:
-#                if host_port is not None:
-#                    #print(f"  Mapeado al puerto del host: {host_port}")
-#                    if host_port == str(selenium_port)+'/tcp' :
-#                        selenium_port +=1
-#                        vnc_port +=1
-#                        ret_ports = (selenium_port, vnc_port)
-#            if selenium_port > limit:
-#                time.sleep(60)
-#                ret_ports = check_ports()
-#    return ret_ports
 
 def check_ports(client, base_selenium_port=4444, base_vnc_port=5900, port_limit=4454, max_attempts=5):
     """
