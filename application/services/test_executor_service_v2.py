@@ -15,7 +15,10 @@ from xml.dom import minidom
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from ..services.docker_service_v2 import DockerService # Asumido
+from ..services.credential_service import CredentialService
+
 from dotenv import load_dotenv
+from lxml import etree
 
 # --- CONFIGURACIÓN ---
 logging.basicConfig(level=logging.INFO,
@@ -38,6 +41,12 @@ class TestExecutorService:
         self.container = None
         self.docker_service = DockerService()
         self.engine = create_engine(os.getenv('DB_SERVER_URL'))
+        
+        # Inicializar servicio de credenciales
+        credentials = self.config.get('credentials', [])
+        logging.info(f"Credentials received from core: {credentials}")
+        logging.info(f"Number of credentials: {len(credentials) if credentials else 0}")
+        self.credential_service = CredentialService(credentials)
 
         # Datos de ejecución, ahora como atributos de instancia
         self.test_execution_data = {
@@ -344,8 +353,18 @@ class TestExecutorService:
             web_element = getElement(element)
             web_element.clear()
 
-        # ... Agrega aquí TODAS las demás funciones que tus scripts usan:
-        # getText, getAttribute, waitElement, sleep, etc.
+        def getCredential(name):
+            """
+            Obtiene el valor de una credencial por su nombre.
+            Para passwords: retorna el valor desencriptado
+            Para certificados: retorna la ruta del archivo
+            
+            Uso:
+                password = getCredential("db_password")
+                cert_path = getCredential("ssl_certificate")
+            """
+            logging.info(f'Getting credential: {name}')
+            return self.credential_service.get_credential(name)
         
         return {
             "get": get,
@@ -368,6 +387,8 @@ class TestExecutorService:
             "getText": getText,
             "getAttribute": getAttribute,
             "clear": clear,
+            "getCredential": getCredential,
+
             # Asegúrate de pasar el resto de funciones necesarias
             "caseData": None, # Placeholder que se llenará por cada caso
             "__builtins__": __builtins__ # Permite usar funciones estándar de Python

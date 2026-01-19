@@ -113,7 +113,7 @@ class DockerService:
         
         selenium_port, vnc_port = self._find_available_ports()
         
-        container_name = f'selenium_vnc_{selenium_port}_{vnc_port}'
+        container_name = f'selenium-vnc-{vnc_port}'
         image_name = os.getenv('SELENIUM_IMAGE', 'selenium/standalone-chrome:latest')
         network_name = 'robomatic-docker-compose_robomatic-net'
 

@@ -1,4 +1,14 @@
 from pydantic import BaseModel
+from typing import List, Optional
+
+
+class CredentialModel(BaseModel):
+    """Modelo para las credenciales enviadas desde el core"""
+    name: str
+    credential_type_id: int
+    encrypted_value: Optional[str] = None
+    file_path: Optional[str] = None
+
 
 class TestExecutionRequest(BaseModel):
     script: str
@@ -9,6 +19,7 @@ class TestExecutionRequest(BaseModel):
     name: str
     test_execution_id: str
     web: bool
+    credentials: Optional[List[CredentialModel]] = []
 
 class StopExecutionRequest(BaseModel):
     id: int

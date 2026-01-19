@@ -16,7 +16,8 @@ app_configs = {"title": "test-executor-api",
                "DATABASE_API_URL": config.DATABASE_API_URL,
                "MAIL_API_URL": config.MAIL_API_URL,
                "JMS_API_URL": config.JMS_API_URL,
-               "GDRIVE_API_URL": config.GDRIVE_API_URL}
+               "GDRIVE_API_URL": config.GDRIVE_API_URL,
+               "ENCRYPTION_SECRET_KEY": config.ENCRYPTION_SECRET_KEY}
 
 def create_app():
     app = FastAPI(**app_configs)
