@@ -24,7 +24,8 @@ class ExecutionService:
                 return ExecutionPorts(id=result.id,
                                       execution_id=execution_id,
                                       selenium_port=result.selenium_port,
-                                      vnc_port=result.vnc_port)
+                                      vnc_port=result.vnc_port,
+                                      session_id=getattr(result, 'session_id', None))
             
     @staticmethod
     def stop_test(testExecution):

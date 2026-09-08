@@ -16,10 +16,21 @@ app_configs = {"title": "test-executor-api",
                "DATABASE_API_URL": config.DATABASE_API_URL,
                "MAIL_API_URL": config.MAIL_API_URL,
                "JMS_API_URL": config.JMS_API_URL,
-               "GDRIVE_API_URL": config.GDRIVE_API_URL,
-               "ENCRYPTION_SECRET_KEY": config.ENCRYPTION_SECRET_KEY}
+                "GDRIVE_API_URL": config.GDRIVE_API_URL,
+                "AI_API_URL": config.AI_API_URL,
+                "ENCRYPTION_SECRET_KEY": config.ENCRYPTION_SECRET_KEY}
 
 def create_app():
     app = FastAPI(**app_configs)
+
+    @app.get("/health", status_code=200)
+    async def root_health():
+        return {"status": "UP", "service": "robomatic-test-executor-api"}
+
+    @app.get("/", status_code=200)
+    async def root():
+        return {"status": "UP", "service": "robomatic-test-executor-api"}
+
     app.include_router(apirouter.router)
     return app
+

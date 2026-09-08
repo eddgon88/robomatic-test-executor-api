@@ -20,6 +20,9 @@ class TestExecutionRequest(BaseModel):
     test_execution_id: str
     web: bool
     credentials: Optional[List[CredentialModel]] = []
+    test_id: Optional[int] = None
+    max_executions: Optional[int] = 0
+    current_executions: Optional[int] = 0
 
 class StopExecutionRequest(BaseModel):
     id: int
@@ -33,3 +36,4 @@ class ExecutionPorts(BaseModel):
     execution_id: str
     selenium_port: str
     vnc_port: str
+    session_id: Optional[str] = None

@@ -17,21 +17,23 @@ class DockerService:
     """
     def __init__(self):
         """
-        Inicializa el cliente de Docker y verifica la conexión.
+        Inicializa el cliente de Docker si está disponible.
         """
+        self.client = None
         try:
             self.client = docker.from_env()
             self.client.ping()
             logging.info("DockerService instance created and connected to Docker daemon.")
-        except DockerException as e:
-            logging.error(f"Could not connect to Docker daemon. Is it running? Error: {e}")
-            # Levanta la excepción para que el servicio que lo instancia sepa que no puede continuar.
-            raise
+        except Exception as e:
+            logging.info(f"Docker daemon not running / not mounted ({e}). Operating in Cloud / Browserless mode.")
+
 
     def _clean_dead_containers(self):
         """
         Elimina contenedores en estado 'exited' para liberar recursos, especialmente puertos.
         """
+        if not self.client:
+            return
         try:
             exited_containers = self.client.containers.list(all=True, filters={'status': 'exited'})
             if not exited_containers:
@@ -51,6 +53,8 @@ class DockerService:
         """
         Encuentra un par de puertos (Selenium, VNC) que no estén actualmente en uso por otros contenedores.
         """
+        if not self.client:
+            raise RuntimeError("Docker client is not initialized. Ensure Docker is running or use Browserless.")
         occupied_ports = set()
         for container in self.client.containers.list():
             try:
@@ -109,23 +113,34 @@ class DockerService:
             - Una tupla con los puertos asignados (selenium_port, vnc_port).
             - El objeto contenedor de Docker.
         """
+        if not self.client:
+            raise RuntimeError("Docker daemon is not available. Please configure BROWSERLESS_HOST to execute tests in Cloud Run Browserless.")
         self._clean_dead_containers()
         
         selenium_port, vnc_port = self._find_available_ports()
         
         container_name = f'selenium-vnc-{vnc_port}'
+        # Use official image by default if env var is not set, ignoring the old custom image build process
         image_name = os.getenv('SELENIUM_IMAGE', 'selenium/standalone-chrome:latest')
         network_name = 'robomatic-docker-compose_robomatic-net'
 
+        # Optimize memory and enable VNC via environment variables
         container_config = {
             'image': image_name,
             'detach': True,
-            'ports': {'4444/tcp': selenium_port, '5900/tcp': vnc_port},
+            # Map 7900 (noVNC/WebSocket) to vnc_port for frontend access
+            'ports': {'4444/tcp': selenium_port, '7900/tcp': vnc_port},
             'name': container_name,
             'network': network_name,
+            # Increased memory limit to 2g to prevent Chrome crashes in long-running tests
             'mem_limit': os.getenv('DOCKER_MEM_LIMIT', '2g'),
-            # Añadir shm_size puede solucionar problemas de 'crasheo' del navegador dentro del contenedor
-            'shm_size': '2g' 
+            # Shared memory size to prevent Chrome crashes
+            'shm_size': '2g',
+            'environment': {
+                'SE_VNC_NO_PASSWORD': '1',  # Enable VNC without password
+                'SE_SCREEN_WIDTH': '1920',
+                'SE_SCREEN_HEIGHT': '1080'
+            }
         }
 
         try:
@@ -143,6 +158,8 @@ class DockerService:
         """
         Detiene y elimina un contenedor de forma segura por su nombre.
         """
+        if not self.client:
+            return
         try:
             logging.info(f"Attempting to destroy container '{container_name}'...")
             container = self.client.containers.get(container_name)
@@ -155,6 +172,9 @@ class DockerService:
             logging.error(f"An error occurred while destroying container '{container_name}': {e}")
 
     def create_docker_image(self):
+        if not self.client:
+            logging.warning("Skipping Docker image build: Docker daemon not available.")
+            return
         self.client.images.build(
             path    = os.getenv('RESOURCES_DIR'),
             tag     = os.getenv('SELENIUM_IMAGE'),

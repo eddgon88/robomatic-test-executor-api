@@ -1,0 +1,82 @@
+name: Deploy Test Executor API to GCP Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'gen-lang-client-0070624733' }}
+  REGION: southamerica-west1
+  SERVICE_NAME: robomatic-test-executor-api
+  GAR_REPOSITORY: robomatic-docker
+
+
+jobs:
+  deploy-executor:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build & Push Container Image
+        run: |
+          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          LATEST_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:latest"
+          docker build -t "$IMAGE_URI" -t "$LATEST_URI" .
+          docker push "$IMAGE_URI"
+          docker push "$LATEST_URI"
+
+      - name: Deploy to Cloud Run
+        env:
+          RAW_NEON_HOST: ${{ secrets.NEON_POOLED_HOST }}
+          RAW_NEON_USER: ${{ secrets.NEON_DB_USER }}
+          RAW_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          RAW_BROWSERLESS_HOST: ${{ secrets.BROWSERLESS_HOST }}
+        run: |
+          NEON_HOST=$(echo "$RAW_NEON_HOST" | tr -d '[:space:]')
+          [ -z "$NEON_HOST" ] && NEON_HOST="ep-empty-resonance-acp1nby5-pooler.sa-east-1.aws.neon.tech"
+          NEON_USER=$(echo "$RAW_NEON_USER" | tr -d '[:space:]')
+          [ -z "$NEON_USER" ] && NEON_USER="neondb_owner"
+          R2_ENDPOINT=$(echo "$RAW_R2_ENDPOINT" | tr -d '[:space:]')
+          [ -z "$R2_ENDPOINT" ] && R2_ENDPOINT="https://61ae37ef07d5d8dcf4df0498e3f0ec19.r2.cloudflarestorage.com"
+          BROWSERLESS_HOST=$(echo "$RAW_BROWSERLESS_HOST" | tr -d '[:space:]')
+          [ -z "$BROWSERLESS_HOST" ] && BROWSERLESS_HOST="robomatic-browserless-80770840815.southamerica-west1.run.app"
+
+          echo "DB_HOST: \"${NEON_HOST}\"" > env.yaml
+          echo "DB_PORT: \"5432\"" >> env.yaml
+          echo "DB_USER: \"${NEON_USER}\"" >> env.yaml
+          echo "DB_NAME: \"test_executor\"" >> env.yaml
+          echo "BROWSERLESS_HOST: \"${BROWSERLESS_HOST}\"" >> env.yaml
+          echo "R2_ENDPOINT: \"${R2_ENDPOINT}\"" >> env.yaml
+          echo "R2_BUCKET_NAME: \"robomatic-evidence\"" >> env.yaml
+          echo "EVIDENCE_FILE_DIR: \"/home/evidence\"" >> env.yaml
+          echo "TEST_CASES_DIR: \"/home/cases/\"" >> env.yaml
+
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --cpu 2 \
+            --memory 2Gi \
+            --min-instances 0 \
+            --max-instances 3 \
+            --timeout 600s \
+            --concurrency 10 \
+            --no-cpu-throttling \
+            --env-vars-file env.yaml \
+            --set-secrets "DB_PWD=NEON_DB_PASSWORD:latest,RABBIT_SERVER_URL=CLOUDAMQP_URL:latest,BROWSERLESS_TOKEN=BROWSERLESS_TOKEN:latest,ENCRYPTION_SECRET_KEY=ENCRYPTION_SECRET_KEY:latest,R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest,R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest"

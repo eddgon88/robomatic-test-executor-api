@@ -1,8 +1,7 @@
 from fastapi import APIRouter
 #from ..services.test_executor_service import TestExecutorService
 from ..services.test_executor_service_v2 import TestExecutorService
-from ..services.docker_service import DockerService
-from ..services.execution_service import ExecutionService
+from ..services.execution_service_v2 import ExecutionService
 from ..models.models import TestExecutionRequest, StopExecutionRequest, ExecutionPorts
 import threading
 import logging
@@ -11,12 +10,17 @@ logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
 
 router = APIRouter(prefix="/test-executor/v1")
-dockerService = DockerService()
+
+@router.get("/health", status_code=200)
+async def health_check():
+    return {"status": "UP", "service": "robomatic-test-executor-api"}
 
 @router.on_event("startup")
 async def startup():
     print("start")
-    dockerService.createDockerImage()
+    print("Skipped custom image build (using Browserless / official Selenium image)")
+
+
 
 @router.post("/execute", status_code=200)
 async def execute(params: TestExecutionRequest):

@@ -7,7 +7,18 @@ from docker.errors import DockerException
 logging.basicConfig(level=logging.INFO,
                     format='(%(threadName)-10s) %(message)s',)
 
-client = docker.from_env()
+client = None
+
+def get_docker_client():
+    global client
+    if client is None:
+        try:
+            client = docker.from_env()
+        except Exception as e:
+            logging.warning(f"Docker daemon not available: {e}")
+            return None
+    return client
+
 dockerfile_path = os.getenv('RESOURCES_DIR')  # Ruta absoluta al Dockerfile
 image_name = os.getenv('SELENIUM_IMAGE')
 ports = [4444, 5900, 4449]
@@ -16,13 +27,18 @@ ports = [4444, 5900, 4449]
 class DockerService:
     @staticmethod
     def createDockerImage():
-        image = client.images.build(
+        c = get_docker_client()
+        if not c:
+            logging.warning("Skipping Docker image build: Docker daemon not available.")
+            return
+        image = c.images.build(
             path    = os.getenv('RESOURCES_DIR'),
             tag     = os.getenv('SELENIUM_IMAGE'),
             rm      = True,           # Eliminar contenedores intermedios después de la construcción
             pull    = True,         # Intentar obtener una versión más reciente de la imagen base
             forcerm = True     # Forzar la eliminación de contenedores intermedios si falla la construcción
         )
+
     
     #@staticmethod
     #def createDocker():
@@ -61,7 +77,10 @@ class DockerService:
             Tuple[tuple, Container]: Puertos asignados y objeto contenedor.
         """
         try:
-            ret_ports = check_ports(client)
+            c = get_docker_client()
+            if not c:
+                raise RuntimeError("Docker daemon is not available. Please configure BROWSERLESS_HOST to execute tests in Cloud Run Browserless.")
+            ret_ports = check_ports(c)
             
             container_config = {
                 'image': os.getenv('SELENIUM_IMAGE', 'selenium/standalone-chrome:latest'),
@@ -73,7 +92,7 @@ class DockerService:
             }
 
             logging.info(f"Iniciando contenedor con config: {container_config}")
-            cont = client.containers.run(**container_config)
+            cont = c.containers.run(**container_config)
             logging.info(f"Contenedor {container_config['name']} creado con ID: {cont.id}")
 
             time.sleep(5)  # Esperar a que el contenedor se inicialice
@@ -95,19 +114,26 @@ class DockerService:
 
     @staticmethod
     def docker_image():
-        images = client.images.list()
-        print(images)
+        c = get_docker_client()
+        if c:
+            images = c.images.list()
+            print(images)
 
     @staticmethod
     def docker_ps():
-        dockers = client.containers.list()
-        print(dockers)
+        c = get_docker_client()
+        if c:
+            dockers = c.containers.list()
+            print(dockers)
 
     @staticmethod
     def destroy_docker(name: str):
-        container = client.containers.get(name)
-        container.kill()  # Mata el contenedor
-        container.remove()  # Elimina el contenedor
+        c = get_docker_client()
+        if c:
+            container = c.containers.get(name)
+            container.kill()  # Mata el contenedor
+            container.remove()  # Elimina el contenedor
+
     
 
 def check_ports(client, base_selenium_port=4444, base_vnc_port=5900, port_limit=4454, max_attempts=5):

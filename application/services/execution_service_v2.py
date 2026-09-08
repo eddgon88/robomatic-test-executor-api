@@ -45,7 +45,7 @@ class ExecutionService:
         # CORRECCIÓN DE SEGURIDAD: Se utiliza una consulta parametrizada para prevenir inyección de SQL.
         # El valor de 'execution_id' se inserta de forma segura donde está ':exec_id'.
         query = text("""
-            SELECT id, execution_id, selenium_port, vnc_port
+            SELECT id, execution_id, selenium_port, vnc_port, session_id
             FROM test_executor.test_port
             WHERE execution_id = :exec_id
         """)
@@ -62,7 +62,8 @@ class ExecutionService:
                     id=result.id,
                     execution_id=result.execution_id,
                     selenium_port=result.selenium_port,
-                    vnc_port=result.vnc_port
+                    vnc_port=result.vnc_port,
+                    session_id=getattr(result, 'session_id', None)
                 )
             else:
                 logging.warning(f"No se encontraron puertos para la ejecución con ID: {execution_id}")
